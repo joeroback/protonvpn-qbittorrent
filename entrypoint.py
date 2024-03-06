@@ -114,7 +114,7 @@ def main():
                 1,
                 0,
                 lifetime=60,
-                gateway_ip='10.2.0.1',
+                gateway_ip=gateway_ip,
                 retry=3,
                 use_exception=True,
             )
