@@ -1,0 +1,17 @@
+services:
+  protonvpn-qbittorrent:
+    image: ghcr.io/joeroback/protonvpn-qbittorrent:latest
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: 1
+    volumes:
+      - ./wg0.conf:/etc/wireguard/wg0.conf:ro
+  curl:
+    image: curlimages/curl
+    network_mode: service:protonvpn-qbittorrent
+    depends_on:
+      protonvpn-qbittorrent:
+        condition: service_healthy
+    command: -4 --verbose https://ifconfig.me

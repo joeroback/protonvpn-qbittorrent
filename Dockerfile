@@ -1,32 +1,18 @@
-FROM alpine:3.19 as builder
+FROM alpine:3.22
 
-ARG PYTHONUNBUFFERED=1
+ENV LOCAL_SUBNETS="192.168.0.0/16"
+ENV TZ="UTC"
+ENV WEBUI_HOST="http://localhost:8080"
+ENV WIREGUARD_INTERFACE="wg0"
 
-RUN \
-    apk add --update --no-cache \
-        g++ \
-        linux-headers \
-        make \
-        python3 \
-        python3-dev
+RUN apk add --update --no-cache \
+        bash ca-certificates curl iproute2 iptables ip6tables jq libnatpmp tzdata wireguard-tools \
+    && ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo ${TZ} > /etc/timezone
 
-RUN \
-    python3 -m venv /usr/local/protonvpn-natpmp && \
-    /usr/local/protonvpn-natpmp/bin/pip3 install -U pip && \
-    /usr/local/protonvpn-natpmp/bin/pip3 install NAT-PMP
+COPY entrypoint.sh /entrypoint.sh
 
-FROM alpine:3.19
+HEALTHCHECK --start-period=15s --interval=60s --timeout=10s --retries=3 \
+    CMD ping -c 1 10.2.0.1 || exit 1
 
-LABEL org.opencontainers.image.source="https://github.com/joeroback/protonvpn-qbittorrent"
-
-RUN \
-    apk add --update --no-cache \
-        ca-certificates \
-        curl \
-        python3
-
-COPY --from=builder /usr/local/protonvpn-natpmp /usr/local/protonvpn-natpmp
-
-COPY entrypoint.py /entrypoint.py
-
-ENTRYPOINT [ "/entrypoint.py" ]
+ENTRYPOINT ["/entrypoint.sh"]
