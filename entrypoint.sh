@@ -33,13 +33,19 @@ shutdown () {
 
 trap shutdown SIGTERM SIGINT SIGQUIT
 
+wg show
+
 # kill switches for ipv4 and ipv6 wg-quick(8)
 iptables -I OUTPUT ! -o ${WIREGUARD_INTERFACE} -m mark ! --mark $(wg show ${WIREGUARD_INTERFACE} fwmark) -m addrtype ! --dst-type LOCAL -j REJECT
 ip6tables -I OUTPUT ! -o ${WIREGUARD_INTERFACE} -m mark ! --mark $(wg show ${WIREGUARD_INTERFACE} fwmark) -m addrtype ! --dst-type LOCAL -j REJECT
 
 # allow local container subnets (especially helpful if using multiple networks)
-for network in $(ip -o addr show | awk '/^(\d)+: eth(.+)inet/ {print $4}'); do
+for network in $(ip -o addr show | awk '/^(\d)+: eth(.+)inet / {print $4}'); do
     iptables -I OUTPUT -d ${network} -j ACCEPT
+done
+
+for network in $(ip -o addr show | awk '/^(\d)+: eth(.+)inet6 / {print $4}'); do
+    ip6tables -I OUTPUT -d ${network} -j ACCEPT
 done
 
 # allow connections user defined local networks
@@ -49,7 +55,6 @@ do
     iptables -I OUTPUT -d ${local_subnet} -j ACCEPT
 done
 
-wg show
 sleep 2
 
 # check to see if tunnel allows port forwarding
