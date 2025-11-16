@@ -34,31 +34,52 @@ shutdown () {
 trap shutdown SIGTERM SIGINT SIGQUIT
 
 wg show
+WIREGUARD_FWMARK=$(wg show ${WIREGUARD_INTERFACE} fwmark)
 
-# kill switches for ipv4 and ipv6 wg-quick(8)
-iptables -I OUTPUT ! -o ${WIREGUARD_INTERFACE} -m mark ! --mark $(wg show ${WIREGUARD_INTERFACE} fwmark) -m addrtype ! --dst-type LOCAL -j REJECT
-ip6tables -I OUTPUT ! -o ${WIREGUARD_INTERFACE} -m mark ! --mark $(wg show ${WIREGUARD_INTERFACE} fwmark) -m addrtype ! --dst-type LOCAL -j REJECT
-
-# allow local container ipv4 subnets (especially helpful if using multiple networks)
-for network in $(ip -o addr show | awk '/^(\d)+: eth(.+)inet / {print $4}'); do
-    iptables -I OUTPUT -d ${network} -j ACCEPT
-done
-
-# allow connections user defined local ipv4 networks
-for local_subnet in ${LOCAL_SUBNETS//,/$IFS}
+# allow connections from container subnets
+for container_subnet in $(ip -o addr show | awk '/^(\d)+: eth(.+)inet / {print $4}')
 do
-    echo "Adding local subnet ${local_subnet} via ${default_route_ip}"
-    ip route add ${local_subnet} via ${default_route_ip}
-    iptables -I OUTPUT -d ${local_subnet} -j ACCEPT
+    iptables -A INPUT -s ${container_subnet} -j ACCEPT
+    iptables -A OUTPUT -d ${container_subnet} -j ACCEPT
 done
 
-sleep 2
+# allow connections to local subnets specified by user, need to add routes since wireguard interface has 0.0.0.0/0 allowed ips
+for local_subnet in ${LOCAL_IPV4_SUBNETS//,/$IFS}
+do
+    iptables -A INPUT -s ${local_subnet} -j ACCEPT
+    iptables -A OUTPUT -d ${local_subnet} -j ACCEPT
+    ip route add ${local_subnet} via ${default_route_ip}
+done
+
+# established connections
+iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+iptables -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+# kill switches for ipv4 -- @see wg-quick(8)
+iptables -A OUTPUT ! -o ${WIREGUARD_INTERFACE} -m mark ! --mark ${WIREGUARD_FWMARK} -m addrtype ! --dst-type LOCAL -j REJECT
+
+for container_subnet in $(ip -o addr show | awk '/^(\d)+: eth(.+)inet6 / {print $4}')
+do
+    ip6tables -A INPUT -s ${container_subnet} -j ACCEPT
+    ip6tables -A OUTPUT -d ${container_subnet} -j ACCEPT
+done
+
+# established connections
+ip6tables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+ip6tables -A OUTPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+# kill switches for ipv6 -- @see wg-quick(8)
+ip6tables -I OUTPUT ! -o ${WIREGUARD_INTERFACE} -m mark ! --mark ${WIREGUARD_FWMARK} -m addrtype ! --dst-type LOCAL -j REJECT
+
+sleep 8 &
+wait ${!}
 
 # check to see if tunnel allows port forwarding
 natpmpc -g 10.2.0.1
 
 # give some delay until qbittorrent container launches
-sleep 10
+sleep 5 &
+wait ${!}
 
 # qbittorrent webui host
 WEBUI_HOST="${WEBUI_HOST:-http://localhost:8080}"
@@ -90,7 +111,7 @@ while true; do
             "${WEBUI_HOST}/api/v2/app/setPreferences" || true
     fi
 
-    sleep 45 &
+    sleep 30 &
     wait ${!}
 done
 
