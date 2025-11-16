@@ -3,7 +3,7 @@
 set -o errexit
 
 default_route_ip=$(ip route | grep '^default' | awk '{print $3}')
-if [[ -z "$default_route_ip" ]]; then
+if [[ -z "${default_route_ip}" ]]; then
         echo "Error: No default route configured" >&2
         exit 1
 fi
@@ -39,18 +39,15 @@ wg show
 iptables -I OUTPUT ! -o ${WIREGUARD_INTERFACE} -m mark ! --mark $(wg show ${WIREGUARD_INTERFACE} fwmark) -m addrtype ! --dst-type LOCAL -j REJECT
 ip6tables -I OUTPUT ! -o ${WIREGUARD_INTERFACE} -m mark ! --mark $(wg show ${WIREGUARD_INTERFACE} fwmark) -m addrtype ! --dst-type LOCAL -j REJECT
 
-# allow local container subnets (especially helpful if using multiple networks)
+# allow local container ipv4 subnets (especially helpful if using multiple networks)
 for network in $(ip -o addr show | awk '/^(\d)+: eth(.+)inet / {print $4}'); do
     iptables -I OUTPUT -d ${network} -j ACCEPT
 done
 
-for network in $(ip -o addr show | awk '/^(\d)+: eth(.+)inet6 / {print $4}'); do
-    ip6tables -I OUTPUT -d ${network} -j ACCEPT
-done
-
-# allow connections user defined local networks
+# allow connections user defined local ipv4 networks
 for local_subnet in ${LOCAL_SUBNETS//,/$IFS}
 do
+    echo "Adding local subnet ${local_subnet} via ${default_route_ip}"
     ip route add ${local_subnet} via ${default_route_ip}
     iptables -I OUTPUT -d ${local_subnet} -j ACCEPT
 done
@@ -93,7 +90,8 @@ while true; do
             "${WEBUI_HOST}/api/v2/app/setPreferences" || true
     fi
 
-    sleep 45
+    sleep 45 &
+    wait ${!}
 done
 
 echo "exiting"
